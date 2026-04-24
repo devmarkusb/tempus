@@ -618,4 +618,16 @@
 
     <string name="nav_drawer_index">Index</string>
 
+    <!-- Voice Search -->
+    <string name="voice_search_hint">Say or type a song, artist, or album…</string>
+    <string name="voice_search_mic_button_desc">Start voice search</string>
+    <string name="voice_search_speak_now">Say a song or artist name</string>
+    <string name="voice_search_listening">Listening…</string>
+    <string name="voice_search_searching">Searching…</string>
+    <string name="voice_search_playing">Playing: %1$s</string>
+    <string name="voice_search_no_results">No results for "%1$s"</string>
+    <string name="voice_search_pick_result">Pick a result:</string>
+    <string name="voice_search_speech_unavailable">Speech recognition not available on this device</string>
+    <string name="voice_search_title">Voice Search</string>
+
 </resources>

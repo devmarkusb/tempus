@@ -71,6 +71,9 @@
         <action
             android:id="@+id/action_homeFragment_to_podcastChannelCatalogueFragment"
             app:destination="@id/podcastChannelCatalogueFragment" />
+        <action
+            android:id="@+id/action_homeFragment_to_voiceSearchFragment"
+            app:destination="@id/voiceSearchFragment" />
     </fragment>
     <fragment
         android:id="@+id/libraryFragment"
@@ -172,6 +175,9 @@
         <action
             android:id="@+id/action_searchFragment_to_songListPageFragment"
             app:destination="@id/songListPageFragment" />
+        <action
+            android:id="@+id/action_searchFragment_to_voiceSearchFragment"
+            app:destination="@id/voiceSearchFragment" />
     </fragment>
     <fragment
         android:id="@+id/filterFragment"
@@ -364,4 +370,9 @@
         android:name="com.cappielloantonio.tempo.ui.fragment.bottomsheetdialog.ShareBottomSheetDialog"
         android:label="ShareBottomSheetDialog"
         tools:layout="@layout/bottom_sheet_share_dialog" />
+    <fragment
+        android:id="@+id/voiceSearchFragment"
+        android:name="com.cappielloantonio.tempo.ui.fragment.VoiceSearchFragment"
+        android:label="VoiceSearchFragment"
+        tools:layout="@layout/fragment_voice_search" />
 </navigation>

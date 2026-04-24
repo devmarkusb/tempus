@@ -69,6 +69,7 @@ public class SearchFragment extends Fragment implements ClickCallback {
 
         initSearchResultView();
         initSearchView();
+        initVoiceSearchButton();
         inputFocus();
 
         return view;
@@ -177,6 +178,18 @@ public class SearchFragment extends Fragment implements ClickCallback {
 
                     }
                 });
+    }
+
+    private void initVoiceSearchButton() {
+        bind.searchBar.inflateMenu(R.menu.search_bar_menu);
+        bind.searchBar.setOnMenuItemClickListener(item -> {
+            if (item.getItemId() == R.id.action_voice_search) {
+                Navigation.findNavController(requireView())
+                        .navigate(R.id.action_searchFragment_to_voiceSearchFragment);
+                return true;
+            }
+            return false;
+        });
     }
 
     public void setRecentSuggestions() {
