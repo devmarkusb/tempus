@@ -93,7 +93,9 @@ class VoiceSearchFragment : Fragment() {
     }
 
     override fun onStop() {
-        MediaBrowser.releaseFuture(mediaBrowserFuture)
+        if (::mediaBrowserFuture.isInitialized) {
+            MediaBrowser.releaseFuture(mediaBrowserFuture)
+        }
         super.onStop()
     }
 
