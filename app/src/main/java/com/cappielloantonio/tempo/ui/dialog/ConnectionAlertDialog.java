@@ -43,7 +43,11 @@ public class ConnectionAlertDialog extends DialogFragment {
     private void setButtonAction() {
         androidx.appcompat.app.AlertDialog alertDialog = (androidx.appcompat.app.AlertDialog) Objects.requireNonNull(getDialog());
 
-        alertDialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> {
+        android.widget.Button neutral = alertDialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_NEUTRAL);
+        if (neutral == null) {
+            return;
+        }
+        neutral.setOnClickListener(v -> {
             Preferences.setDataSavingMode(true);
             Objects.requireNonNull(getDialog()).dismiss();
         });
