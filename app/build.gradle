@@ -4,6 +4,11 @@ apply plugin: 'kotlin-parcelize'
 
 def playApplicationIdOverride = project.findProperty("playApplicationId")?.toString()
 def versionCodeOverride = project.findProperty("versionCodeOverride")?.toString()
+def playKeystoreFile = System.getenv("PLAY_KEYSTORE_FILE")
+def playKeystorePassword = System.getenv("PLAY_KEYSTORE_PASSWORD")
+def playKeyAlias = System.getenv("PLAY_KEY_ALIAS")
+def playKeyPassword = System.getenv("PLAY_KEY_PASSWORD")
+def playSigningEnabled = playKeystoreFile != null && !playKeystoreFile.isBlank()
 
 android {
     compileSdk 35
@@ -60,11 +65,28 @@ android {
 
     }
 
+    signingConfigs {
+        playRelease {
+            if (playSigningEnabled) {
+                if (!playKeystorePassword || !playKeyAlias || !playKeyPassword) {
+                    throw new GradleException("PLAY_KEYSTORE_PASSWORD, PLAY_KEY_ALIAS, and PLAY_KEY_PASSWORD are required when PLAY_KEYSTORE_FILE is set.")
+                }
+                storeFile = file(playKeystoreFile)
+                storePassword = playKeystorePassword
+                keyAlias = playKeyAlias
+                keyPassword = playKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
             shrinkResources true
             minifyEnabled true
             debuggable false
+            if (playSigningEnabled) {
+                signingConfig = signingConfigs.playRelease
+            }
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
 

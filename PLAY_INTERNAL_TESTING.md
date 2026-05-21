@@ -53,3 +53,6 @@ It overrides the Play package name only for that build:
 
 It also sets a CI version code. If you do not pass a `version_code` input, the
 workflow uses `25000 + GITHUB_RUN_NUMBER`.
+
+The workflow signs the release bundle through Gradle using `PLAY_KEYSTORE_*`
+secrets. It does not use a separate signing action.
