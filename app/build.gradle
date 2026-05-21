@@ -2,6 +2,9 @@ apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
 apply plugin: 'kotlin-parcelize'
 
+def playApplicationIdOverride = project.findProperty("playApplicationId")?.toString()
+def versionCodeOverride = project.findProperty("versionCodeOverride")?.toString()
+
 android {
     compileSdk 35
     buildToolsVersion = '35.0.0'
@@ -10,7 +13,7 @@ android {
         minSdkVersion 24
         targetSdk 35
 
-        versionCode 25
+        versionCode = versionCodeOverride ? Integer.parseInt(versionCodeOverride) : 25
         versionName '4.14.1'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
 
@@ -47,12 +50,12 @@ android {
     productFlavors {
         tempus {
             dimension = "default"
-            applicationId 'com.eddyizm.tempus'
+            applicationId = playApplicationIdOverride ?: 'org.cismypa.tempusvoicecontrol'
         }
 
         degoogled {
             dimension = "default"
-            applicationId "com.eddyizm.degoogled.tempus"
+            applicationId "org.cismypa.tempusvoicecontrol"
         }
 
     }
