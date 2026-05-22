@@ -3,9 +3,12 @@ package com.cappielloantonio.tempo.ui.fragment
 import android.content.ComponentName
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.speech.RecognizerIntent
 import android.view.KeyEvent
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
@@ -32,6 +35,10 @@ import com.google.common.util.concurrent.ListenableFuture
 @OptIn(UnstableApi::class)
 class VoiceSearchFragment : Fragment() {
 
+    private companion object {
+        const val AMBIGUOUS_AUTOPLAY_DELAY_MS = 3_000L
+    }
+
     private var _bind: FragmentVoiceSearchBinding? = null
     private val bind get() = _bind!!
 
@@ -39,6 +46,11 @@ class VoiceSearchFragment : Fragment() {
     private lateinit var mediaBrowserFuture: ListenableFuture<MediaBrowser>
     private lateinit var adapter: VoiceSearchResultAdapter
     private lateinit var speechLauncher: ActivityResultLauncher<Intent>
+    private val ambiguousAutoPlayHandler = Handler(Looper.getMainLooper())
+    private var pendingAmbiguousCandidates: List<Child> = emptyList()
+    private val ambiguousAutoPlayRunnable = Runnable {
+        playPendingAmbiguousCandidates()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -65,9 +77,19 @@ class VoiceSearchFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        adapter = VoiceSearchResultAdapter { song -> playNow(listOf(song), 0) }
+        adapter = VoiceSearchResultAdapter { song ->
+            cancelAmbiguousAutoPlay()
+            playNow(listOf(song), 0)
+        }
         bind.voiceSearchFallbackList.layoutManager = LinearLayoutManager(requireContext())
         bind.voiceSearchFallbackList.adapter = adapter
+        bind.voiceSearchFallbackList.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> pauseAmbiguousAutoPlay()
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> resumeAmbiguousAutoPlay()
+            }
+            false
+        }
 
         bind.voiceSearchMicButton.setOnClickListener { startListening() }
 
@@ -93,6 +115,7 @@ class VoiceSearchFragment : Fragment() {
     }
 
     override fun onStop() {
+        cancelAmbiguousAutoPlay()
         if (::mediaBrowserFuture.isInitialized) {
             MediaBrowser.releaseFuture(mediaBrowserFuture)
         }
@@ -100,11 +123,13 @@ class VoiceSearchFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        cancelAmbiguousAutoPlay()
         super.onDestroyView()
         _bind = null
     }
 
     private fun startListening() {
+        cancelAmbiguousAutoPlay()
         viewModel.setListening()
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -122,23 +147,27 @@ class VoiceSearchFragment : Fragment() {
     private fun render(state: VoiceSearchState) {
         when (state) {
             is VoiceSearchState.Idle -> {
+                cancelAmbiguousAutoPlay()
                 bind.voiceSearchStatus.visibility = View.GONE
                 bind.voiceSearchFallbackLabel.visibility = View.GONE
                 bind.voiceSearchFallbackList.visibility = View.GONE
             }
             is VoiceSearchState.Listening -> {
+                cancelAmbiguousAutoPlay()
                 bind.voiceSearchStatus.text = getString(R.string.voice_search_listening)
                 bind.voiceSearchStatus.visibility = View.VISIBLE
                 bind.voiceSearchFallbackLabel.visibility = View.GONE
                 bind.voiceSearchFallbackList.visibility = View.GONE
             }
             is VoiceSearchState.Searching -> {
+                cancelAmbiguousAutoPlay()
                 bind.voiceSearchStatus.text = getString(R.string.voice_search_searching)
                 bind.voiceSearchStatus.visibility = View.VISIBLE
                 bind.voiceSearchFallbackLabel.visibility = View.GONE
                 bind.voiceSearchFallbackList.visibility = View.GONE
             }
             is VoiceSearchState.Playing -> {
+                cancelAmbiguousAutoPlay()
                 val label = formatSongLabel(state.song)
                 bind.voiceSearchStatus.text = getString(R.string.voice_search_playing, label)
                 bind.voiceSearchStatus.visibility = View.VISIBLE
@@ -151,18 +180,61 @@ class VoiceSearchFragment : Fragment() {
                 bind.voiceSearchFallbackLabel.visibility = View.VISIBLE
                 bind.voiceSearchFallbackList.visibility = View.VISIBLE
                 adapter.submitList(state.candidates)
+                scheduleAmbiguousAutoPlay(state.candidates)
             }
             is VoiceSearchState.NoResults -> {
+                cancelAmbiguousAutoPlay()
                 bind.voiceSearchStatus.text = getString(R.string.voice_search_no_results, state.query)
                 bind.voiceSearchStatus.visibility = View.VISIBLE
                 bind.voiceSearchFallbackLabel.visibility = View.GONE
                 bind.voiceSearchFallbackList.visibility = View.GONE
             }
             is VoiceSearchState.Error -> {
+                cancelAmbiguousAutoPlay()
                 bind.voiceSearchStatus.text = state.message
                 bind.voiceSearchStatus.visibility = View.VISIBLE
             }
         }
+    }
+
+    private fun scheduleAmbiguousAutoPlay(candidates: List<Child>) {
+        pauseAmbiguousAutoPlay()
+        pendingAmbiguousCandidates = candidates
+        resumeAmbiguousAutoPlay()
+    }
+
+    private fun pauseAmbiguousAutoPlay() {
+        ambiguousAutoPlayHandler.removeCallbacks(ambiguousAutoPlayRunnable)
+    }
+
+    private fun resumeAmbiguousAutoPlay() {
+        if (pendingAmbiguousCandidates.isNotEmpty()) {
+            ambiguousAutoPlayHandler.postDelayed(
+                ambiguousAutoPlayRunnable,
+                AMBIGUOUS_AUTOPLAY_DELAY_MS
+            )
+        }
+    }
+
+    private fun cancelAmbiguousAutoPlay() {
+        pauseAmbiguousAutoPlay()
+        pendingAmbiguousCandidates = emptyList()
+    }
+
+    private fun playPendingAmbiguousCandidates() {
+        val candidates = pendingAmbiguousCandidates
+        if (candidates.isEmpty() || !::mediaBrowserFuture.isInitialized || _bind == null) return
+
+        pendingAmbiguousCandidates = emptyList()
+        val shuffledCandidates = candidates.shuffled()
+        bind.voiceSearchStatus.text = getString(
+            R.string.voice_search_playing,
+            formatSongLabel(shuffledCandidates.first())
+        )
+        bind.voiceSearchStatus.visibility = View.VISIBLE
+        bind.voiceSearchFallbackLabel.visibility = View.GONE
+        bind.voiceSearchFallbackList.visibility = View.GONE
+        playNow(shuffledCandidates, 0)
     }
 
     private fun playNow(songs: List<Child>, startIndex: Int) {
