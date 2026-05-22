@@ -477,6 +477,16 @@ open class MediaLibrarySessionCallback(
                 )
             }
 
+            firstItem.mediaId.startsWith(Constants.AA_PLAYLIST_ID) &&
+                    firstItem.mediaId != Constants.AA_PLAYLIST_ID -> {
+                Log.d(TAG, "Fetching playlist tracks for ${firstItem.mediaId}")
+                Futures.transform(
+                    automotiveRepository.getPlaylistSongs(firstItem.mediaId.removePrefix(Constants.AA_PLAYLIST_ID)),
+                    { it.value ?: emptyList() },
+                    MoreExecutors.directExecutor()
+                )
+            }
+
             else -> {
                 Log.d(TAG, "Fallback queue for item ${firstItem.mediaId}")
                 val resolvedItems = ArrayList<MediaItem>()

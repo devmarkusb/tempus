@@ -508,7 +508,8 @@ object MediaBrowserTree {
         return automotiveRepository.search(
             query,
             Constants.AA_ALBUM_ID,
-            Constants.AA_ARTIST_ID
+            Constants.AA_ARTIST_ID,
+            Constants.AA_PLAYLIST_ID
         )
     }
 }

@@ -50,6 +50,7 @@ import com.google.common.util.concurrent.SettableFuture;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 import retrofit2.Call;
@@ -517,26 +518,7 @@ public class AutomotiveRepository {
                             List<MediaItem> mediaItems = new ArrayList<>();
 
                             for (Playlist playlist : playlists) {
-                                String coverId = playlist.getCoverArtId();
-                                Uri artworkUri = (coverId != null && !coverId.isEmpty())
-                                        ? AlbumArtContentProvider.contentUri(coverId)
-                                        : Uri.parse("android.resource://" + BuildConfig.APPLICATION_ID + "/" + R.drawable.ic_aa_playlist);
-
-                                MediaMetadata mediaMetadata = new MediaMetadata.Builder()
-                                        .setTitle(playlist.getName())
-                                        .setIsBrowsable(true)
-                                        .setIsPlayable(false)
-                                        .setMediaType(MediaMetadata.MEDIA_TYPE_PLAYLIST)
-                                        .setArtworkUri(artworkUri)
-                                        .build();
-
-                                MediaItem mediaItem = new MediaItem.Builder()
-                                        .setMediaId(prefix + playlist.getId())
-                                        .setMediaMetadata(mediaMetadata)
-                                        .setUri("")
-                                        .build();
-
-                                mediaItems.add(mediaItem);
+                                mediaItems.add(mapPlaylistMediaItem(playlist, prefix, false));
                             }
 
                             LibraryResult<ImmutableList<MediaItem>> libraryResult = LibraryResult.ofItemList(ImmutableList.copyOf(mediaItems), null);
@@ -554,6 +536,27 @@ public class AutomotiveRepository {
                 });
 
         return listenableFuture;
+    }
+
+    private MediaItem mapPlaylistMediaItem(Playlist playlist, String prefix, boolean isPlayable) {
+        String coverId = playlist.getCoverArtId();
+        Uri artworkUri = (coverId != null && !coverId.isEmpty())
+                ? AlbumArtContentProvider.contentUri(coverId)
+                : Uri.parse("android.resource://" + BuildConfig.APPLICATION_ID + "/" + R.drawable.ic_aa_playlist);
+
+        MediaMetadata mediaMetadata = new MediaMetadata.Builder()
+                .setTitle(playlist.getName())
+                .setIsBrowsable(true)
+                .setIsPlayable(isPlayable)
+                .setMediaType(MediaMetadata.MEDIA_TYPE_PLAYLIST)
+                .setArtworkUri(artworkUri)
+                .build();
+
+        return new MediaItem.Builder()
+                .setMediaId(prefix + playlist.getId())
+                .setMediaMetadata(mediaMetadata)
+                .setUri("")
+                .build();
     }
 
     public ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> getNewestPodcastEpisodes(int count) {
@@ -794,7 +797,7 @@ public class AutomotiveRepository {
         return listenableFuture;
     }
 
-    public ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> search(String query, String albumPrefix, String artistPrefix) {
+    public ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> search(String query, String albumPrefix, String artistPrefix, String playlistPrefix) {
         final SettableFuture<LibraryResult<ImmutableList<MediaItem>>> listenableFuture = SettableFuture.create();
 
         App.getSubsonicClientInstance(false)
@@ -803,9 +806,8 @@ public class AutomotiveRepository {
                 .enqueue(new Callback<ApiResponse>() {
                     @Override
                     public void onResponse(@NonNull Call<ApiResponse> call, @NonNull Response<ApiResponse> response) {
+                        List<MediaItem> mediaItems = new ArrayList<>();
                         if (response.isSuccessful() && response.body() != null && response.body().getSubsonicResponse().getSearchResult3() != null) {
-                            List<MediaItem> mediaItems = new ArrayList<>();
-
                             if (response.body().getSubsonicResponse().getSearchResult3().getArtists() != null) {
                                 for (ArtistID3 artist : response.body().getSubsonicResponse().getSearchResult3().getArtists()) {
                                     Uri artworkUri = AlbumArtContentProvider.contentUri(artist.getCoverArtId());
@@ -858,20 +860,78 @@ public class AutomotiveRepository {
                                 setChildrenMetadata(tracks);
                                 mediaItems.addAll(MappingUtil.mapMediaItems(tracks));
                             }
+                        }
 
-                            LibraryResult<ImmutableList<MediaItem>> libraryResult = LibraryResult.ofItemList(ImmutableList.copyOf(mediaItems), null);
+                        appendMatchingPlaylistsToSearch(query, playlistPrefix, mediaItems, listenableFuture, null);
+                    }
 
-                            listenableFuture.set(libraryResult);
+                    @Override
+                    public void onFailure(@NonNull Call<ApiResponse> call, @NonNull Throwable t) {
+                        appendMatchingPlaylistsToSearch(query, playlistPrefix, new ArrayList<>(), listenableFuture, t);
+                    }
+                });
+
+        return listenableFuture;
+    }
+
+    private void appendMatchingPlaylistsToSearch(String query, String playlistPrefix, List<MediaItem> mediaItems, SettableFuture<LibraryResult<ImmutableList<MediaItem>>> listenableFuture, Throwable fallbackError) {
+        App.getSubsonicClientInstance(false)
+                .getPlaylistClient()
+                .getPlaylists()
+                .enqueue(new Callback<ApiResponse>() {
+                    @Override
+                    public void onResponse(@NonNull Call<ApiResponse> call, @NonNull Response<ApiResponse> response) {
+                        if (response.isSuccessful() && response.body() != null && response.body().getSubsonicResponse().getPlaylists() != null && response.body().getSubsonicResponse().getPlaylists().getPlaylists() != null) {
+                            for (Playlist playlist : response.body().getSubsonicResponse().getPlaylists().getPlaylists()) {
+                                if (matchesPlaylistSearch(playlist, query)) {
+                                    mediaItems.add(mapPlaylistMediaItem(playlist, playlistPrefix, true));
+                                }
+                            }
+                            completeSearch(listenableFuture, mediaItems);
+                        } else if (fallbackError != null) {
+                            listenableFuture.setException(fallbackError);
+                        } else {
+                            completeSearch(listenableFuture, mediaItems);
                         }
                     }
 
                     @Override
                     public void onFailure(@NonNull Call<ApiResponse> call, @NonNull Throwable t) {
-                        listenableFuture.setException(t);
+                        if (fallbackError != null) {
+                            listenableFuture.setException(fallbackError);
+                        } else {
+                            completeSearch(listenableFuture, mediaItems);
+                        }
                     }
                 });
+    }
 
-        return listenableFuture;
+    private void completeSearch(SettableFuture<LibraryResult<ImmutableList<MediaItem>>> listenableFuture, List<MediaItem> mediaItems) {
+        if (!listenableFuture.isDone()) {
+            listenableFuture.set(LibraryResult.ofItemList(ImmutableList.copyOf(mediaItems), null));
+        }
+    }
+
+    private boolean matchesPlaylistSearch(Playlist playlist, String query) {
+        String normalizedQuery = normalizeSearchTerm(query);
+        if (normalizedQuery.isEmpty()) return false;
+
+        String playlistName = normalizeSearchTerm(playlist.getName());
+        if (playlistName.contains(normalizedQuery)) return true;
+
+        if (normalizedQuery.startsWith("play playlist ")) {
+            return playlistName.contains(normalizedQuery.substring("play playlist ".length()).trim());
+        }
+
+        if (normalizedQuery.startsWith("playlist ")) {
+            return playlistName.contains(normalizedQuery.substring("playlist ".length()).trim());
+        }
+
+        return false;
+    }
+
+    private String normalizeSearchTerm(String value) {
+        return value == null ? "" : value.toLowerCase(Locale.ROOT).trim();
     }
 
     @OptIn(markerClass = UnstableApi.class)

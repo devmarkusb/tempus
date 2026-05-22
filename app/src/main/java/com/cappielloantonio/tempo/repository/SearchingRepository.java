@@ -27,6 +27,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.Executors;
 
 import retrofit2.Call;
@@ -179,6 +180,62 @@ public class SearchingRepository {
                 });
 
         return suggestions;
+    }
+
+    public MutableLiveData<List<Playlist>> searchPlaylists(String query) {
+        MutableLiveData<List<Playlist>> result = new MutableLiveData<>(new ArrayList<>());
+
+        App.getSubsonicClientInstance(false)
+                .getPlaylistClient()
+                .getPlaylists()
+                .enqueue(new Callback<ApiResponse>() {
+                    @Override
+                    public void onResponse(@NonNull Call<ApiResponse> call, @NonNull Response<ApiResponse> response) {
+                        List<Playlist> matches = new ArrayList<>();
+
+                        if (response.isSuccessful()
+                                && response.body() != null
+                                && response.body().getSubsonicResponse().getPlaylists() != null
+                                && response.body().getSubsonicResponse().getPlaylists().getPlaylists() != null) {
+                            for (Playlist playlist : response.body().getSubsonicResponse().getPlaylists().getPlaylists()) {
+                                if (matchesPlaylistSearch(playlist, query)) {
+                                    matches.add(playlist);
+                                }
+                            }
+                        }
+
+                        result.setValue(matches);
+                    }
+
+                    @Override
+                    public void onFailure(@NonNull Call<ApiResponse> call, @NonNull Throwable t) {
+                        result.setValue(new ArrayList<>());
+                    }
+                });
+
+        return result;
+    }
+
+    private boolean matchesPlaylistSearch(Playlist playlist, String query) {
+        String normalizedQuery = normalizeSearchTerm(query);
+        if (normalizedQuery.isEmpty()) return false;
+
+        String playlistName = normalizeSearchTerm(playlist.getName());
+        if (playlistName.contains(normalizedQuery)) return true;
+
+        if (normalizedQuery.startsWith("play playlist ")) {
+            return playlistName.contains(normalizedQuery.substring("play playlist ".length()).trim());
+        }
+
+        if (normalizedQuery.startsWith("playlist ")) {
+            return playlistName.contains(normalizedQuery.substring("playlist ".length()).trim());
+        }
+
+        return false;
+    }
+
+    private String normalizeSearchTerm(String value) {
+        return value == null ? "" : value.toLowerCase(Locale.ROOT).trim();
     }
 
     public void insert(RecentSearch recentSearch) {

@@ -8,7 +8,9 @@ import androidx.lifecycle.LiveData;
 import androidx.media3.common.util.UnstableApi;
 
 import com.cappielloantonio.tempo.model.RecentSearch;
+import com.cappielloantonio.tempo.repository.PlaylistRepository;
 import com.cappielloantonio.tempo.repository.SearchingRepository;
+import com.cappielloantonio.tempo.subsonic.models.Playlist;
 import com.cappielloantonio.tempo.subsonic.models.SearchResult2;
 import com.cappielloantonio.tempo.subsonic.models.SearchResult3;
 import com.cappielloantonio.tempo.ui.fragment.SearchFragment;
@@ -22,11 +24,13 @@ public class SearchViewModel extends AndroidViewModel {
     private String query = "";
 
     private final SearchingRepository searchingRepository;
+    private final PlaylistRepository playlistRepository;
 
     public SearchViewModel(@NonNull Application application) {
         super(application);
 
         searchingRepository = new SearchingRepository();
+        playlistRepository = new PlaylistRepository();
     }
 
     public String getQuery() {
@@ -48,6 +52,14 @@ public class SearchViewModel extends AndroidViewModel {
     @UnstableApi
     public LiveData<SearchResult3> search3(SearchFragment sf, String title) {
         return searchingRepository.search3(sf, title);
+    }
+
+    public LiveData<List<Playlist>> searchPlaylists(String query) {
+        return searchingRepository.searchPlaylists(query);
+    }
+
+    public LiveData<Playlist> getPlaylist(String id) {
+        return playlistRepository.getPlaylist(id);
     }
 
     public void insertNewSearch(String search) {

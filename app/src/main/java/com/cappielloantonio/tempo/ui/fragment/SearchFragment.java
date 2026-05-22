@@ -13,6 +13,8 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
+import androidx.lifecycle.LiveData;
+import androidx.lifecycle.Observer;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.session.MediaBrowser;
@@ -53,7 +55,8 @@ public class SearchFragment extends Fragment implements ClickCallback {
     private ArtistAdapter artistAdapter;
     private AlbumAdapter albumAdapter;
     private SongHorizontalAdapter songHorizontalAdapter;
-    private PlaylistHorizontalAdapter playlistHorizontalAdapter;
+    private PlaylistHorizontalAdapter allSongsPlaylistAdapter;
+    private PlaylistHorizontalAdapter searchPlaylistAdapter;
 
     private ListenableFuture<MediaBrowser> mediaBrowserListenableFuture;
 
@@ -132,11 +135,18 @@ public class SearchFragment extends Fragment implements ClickCallback {
 
         bind.searchResultTracksRecyclerView.setAdapter(songHorizontalAdapter);
 
+        // Playlists
+        bind.searchResultPlaylistRecyclerView.setLayoutManager(new LinearLayoutManager(requireContext()));
+        bind.searchResultPlaylistRecyclerView.setHasFixedSize(true);
+
+        searchPlaylistAdapter = new PlaylistHorizontalAdapter(this);
+        bind.searchResultPlaylistRecyclerView.setAdapter(searchPlaylistAdapter);
+
         bind.allsongsview.setLayoutManager(new LinearLayoutManager(requireContext()));
         bind.allsongsview.setHasFixedSize(true);
 
-        playlistHorizontalAdapter = new PlaylistHorizontalAdapter(this);
-        bind.allsongsview.setAdapter(playlistHorizontalAdapter);
+        allSongsPlaylistAdapter = new PlaylistHorizontalAdapter(this);
+        bind.allsongsview.setAdapter(allSongsPlaylistAdapter);
     }
 
     private void initSearchView() {
@@ -240,7 +250,8 @@ public class SearchFragment extends Fragment implements ClickCallback {
     public void search(String query) {
         searchViewModel.setQuery(query);
         bind.allSongs.setText(this.getView().getContext().getString(R.string.search_all_songs_loading));
-        playlistHorizontalAdapter.setItems(Collections.emptyList());
+        allSongsPlaylistAdapter.setItems(Collections.emptyList());
+        searchPlaylistAdapter.setItems(Collections.emptyList());
         bind.searchBar.setText(query);
         bind.searchView.hide();
         performSearch(query);
@@ -248,14 +259,15 @@ public class SearchFragment extends Fragment implements ClickCallback {
 
     public void updateUI(List<Playlist> allSongs) {
         if (allSongs != null && !allSongs.isEmpty()) {
-            playlistHorizontalAdapter.setItems(allSongs);
+            allSongsPlaylistAdapter.setItems(allSongs);
             if (getView() != null && bind != null) {
                 bind.allSongs.setText(this.getView().getContext().getString(R.string.search_all_songs_play, String.valueOf(allSongs.get(0).getName())));
             }
         } else {
-            playlistHorizontalAdapter.setItems(Collections.emptyList());
+            allSongsPlaylistAdapter.setItems(Collections.emptyList());
         }
     }
+
     private void performSearch(String query) {
         searchViewModel.search3(this, query).observe(getViewLifecycleOwner(), result -> {
             if (bind != null) {
@@ -282,6 +294,18 @@ public class SearchFragment extends Fragment implements ClickCallback {
                     songHorizontalAdapter.setItems(Collections.emptyList());
                     bind.searchSongSector.setVisibility(View.GONE);
                 }
+            }
+        });
+
+        searchViewModel.searchPlaylists(query).observe(getViewLifecycleOwner(), playlists -> {
+            if (bind == null) return;
+
+            if (playlists != null && !playlists.isEmpty()) {
+                bind.searchPlaylistSector.setVisibility(View.VISIBLE);
+                searchPlaylistAdapter.setItems(playlists);
+            } else {
+                bind.searchPlaylistSector.setVisibility(View.GONE);
+                searchPlaylistAdapter.setItems(Collections.emptyList());
             }
         });
 
@@ -314,15 +338,40 @@ public class SearchFragment extends Fragment implements ClickCallback {
 
     @Override
     public void onPlaylistClick(Bundle bundle) {
-        PlaylistWithSongs playlistWithSongs = bundle.getParcelable(Constants.PLAYLIST_OBJECT);
-        if (playlistWithSongs != null) {
+        Playlist playlist = bundle.getParcelable(Constants.PLAYLIST_OBJECT);
+        if (playlist instanceof PlaylistWithSongs) {
+            PlaylistWithSongs playlistWithSongs = (PlaylistWithSongs) playlist;
             MediaManager.startQueue(mediaBrowserListenableFuture, playlistWithSongs.getEntries(), 0);
+        } else if (playlist != null) {
+            Navigation.findNavController(requireView()).navigate(R.id.playlistPageFragment, bundle);
         }
     }
 
     @Override
     public void onPlaylistLongClick(Bundle bundle) {
-        Navigation.findNavController(requireView()).navigate(R.id.playlistBottomSheetDialog, bundle);
+        Playlist playlist = bundle.getParcelable(Constants.PLAYLIST_OBJECT);
+        if (playlist instanceof PlaylistWithSongs) {
+            Navigation.findNavController(requireView()).navigate(R.id.playlistBottomSheetDialog, bundle);
+        } else if (playlist != null) {
+            openPlaylistBottomSheet(playlist);
+        }
+    }
+
+    private void openPlaylistBottomSheet(Playlist playlist) {
+        LiveData<Playlist> playlistLiveData = searchViewModel.getPlaylist(playlist.getId());
+        Observer<Playlist> observer = new Observer<Playlist>() {
+            @Override
+            public void onChanged(Playlist loadedPlaylist) {
+                playlistLiveData.removeObserver(this);
+
+                if (loadedPlaylist instanceof PlaylistWithSongs) {
+                    Bundle bundle = new Bundle();
+                    bundle.putParcelable(Constants.PLAYLIST_OBJECT, loadedPlaylist);
+                    Navigation.findNavController(requireView()).navigate(R.id.playlistBottomSheetDialog, bundle);
+                }
+            }
+        };
+        playlistLiveData.observe(getViewLifecycleOwner(), observer);
     }
 
     @Override

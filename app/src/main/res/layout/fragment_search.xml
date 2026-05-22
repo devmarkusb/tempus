@@ -81,6 +81,35 @@
                     android:paddingBottom="8dp" />
             </LinearLayout>
 
+            <!--  Playlists  -->
+            <LinearLayout
+                android:id="@+id/search_playlist_sector"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingBottom="8dp"
+                android:visibility="gone">
+
+                <TextView
+                    style="@style/TitleLarge"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="16dp"
+                    android:paddingTop="20dp"
+                    android:paddingEnd="16dp"
+                    android:text="@string/library_title_playlist" />
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/search_result_playlist_recycler_view"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:layout_marginTop="8dp"
+                    android:layout_marginBottom="8dp"
+                    android:clipToPadding="false"
+                    android:paddingTop="8dp"
+                    android:paddingBottom="8dp" />
+            </LinearLayout>
+
             <!--  Songs  -->
             <LinearLayout
                 android:id="@+id/search_song_sector"
