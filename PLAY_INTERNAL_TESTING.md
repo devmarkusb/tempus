@@ -1,7 +1,8 @@
 # Play Internal Testing Upload
 
-This fork has a separate manual GitHub Actions workflow for uploading the
-`tempus` flavor to your own Google Play internal testing track.
+This fork has a separate GitHub Actions workflow for uploading the `tempus`
+flavor to your own Google Play internal testing track. It runs automatically on
+pushes to `main` and can also be started manually from GitHub Actions.
 
 The existing GitHub release workflows are unchanged. They still build APKs for
 GitHub releases.
@@ -37,7 +38,8 @@ Add these repository secrets:
 
 ## Running the upload
 
-Open GitHub Actions, choose **Play Internal Test Upload**, and run it manually.
+Push to `main` to upload a new build automatically. For a manual upload, open
+GitHub Actions, choose **Play Internal Test Upload**, and run it manually.
 
 The workflow builds:
 
