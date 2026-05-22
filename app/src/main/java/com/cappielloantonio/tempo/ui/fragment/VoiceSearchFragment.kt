@@ -104,6 +104,12 @@ class VoiceSearchFragment : Fragment() {
         }
 
         viewModel.state.observe(viewLifecycleOwner) { state -> render(state) }
+
+        if (savedInstanceState == null) {
+            bind.voiceSearchMicButton.post {
+                if (_bind != null) startListening()
+            }
+        }
     }
 
     override fun onStart() {
