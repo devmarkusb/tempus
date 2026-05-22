@@ -70,7 +70,6 @@ public class SearchFragment extends Fragment implements ClickCallback {
         initSearchResultView();
         initSearchView();
         initVoiceSearchButton();
-        inputFocus();
 
         return view;
     }
@@ -291,10 +290,6 @@ public class SearchFragment extends Fragment implements ClickCallback {
 
     private boolean isQueryValid(String query) {
         return !query.equals("") && query.trim().length() > 1;
-    }
-
-    private void inputFocus() {
-        bind.searchView.show();
     }
 
     private void initializeMediaBrowser() {
