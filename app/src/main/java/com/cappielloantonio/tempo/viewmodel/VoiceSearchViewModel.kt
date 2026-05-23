@@ -17,8 +17,16 @@ sealed class VoiceSearchState {
     object Idle : VoiceSearchState()
     object Listening : VoiceSearchState()
     object Searching : VoiceSearchState()
-    data class Playing(val song: Child) : VoiceSearchState()
-    data class Ambiguous(val candidates: List<Child>) : VoiceSearchState()
+    data class Playing(
+        val song: Child,
+        val queue: List<Child> = listOf(song),
+        val startIndex: Int = 0
+    ) : VoiceSearchState()
+    data class Ambiguous(
+        val candidates: List<Child>,
+        val shuffleAutoPlay: Boolean = true,
+        val playAsQueue: Boolean = false
+    ) : VoiceSearchState()
     data class NoResults(val query: String) : VoiceSearchState()
     data class Error(val message: String) : VoiceSearchState()
 }
@@ -47,23 +55,37 @@ class VoiceSearchViewModel : ViewModel() {
             val parsed = VoiceQueryParser.parse(query)
             lastParsed = parsed
 
-            val searchQuery = buildSearchQuery(parsed)
-            val results = withContext(Dispatchers.IO) {
-                SearchAndRankUseCase.search(searchQuery)
+            val resolution = withContext(Dispatchers.IO) {
+                SearchAndRankUseCase.resolve(parsed)
             }
+            val results = resolution.songs
 
             if (results.isEmpty()) {
                 _state.value = VoiceSearchState.NoResults(query)
                 return@launch
             }
 
-            val ranked = SearchAndRankUseCase.rank(results, parsed)
+            val ranked = if (resolution.preserveOrder) {
+                results
+            } else {
+                SearchAndRankUseCase.rank(results, parsed)
+            }
+
+            if (resolution.isCollection) {
+                _state.value = VoiceSearchState.Ambiguous(
+                    ranked,
+                    shuffleAutoPlay = false,
+                    playAsQueue = true
+                )
+                return@launch
+            }
+
             val best = ranked.first()
             val bestScore = computeBestScore(best, parsed)
 
             when {
                 bestScore >= 80 -> _state.value = VoiceSearchState.Playing(best)
-                ranked.size >= 2 -> _state.value = VoiceSearchState.Ambiguous(ranked.take(5))
+                ranked.size >= 2 -> _state.value = VoiceSearchState.Ambiguous(ranked)
                 else -> _state.value = VoiceSearchState.Playing(best)
             }
         }
@@ -81,15 +103,8 @@ class VoiceSearchViewModel : ViewModel() {
         _transcript.value = text
     }
 
-    private fun buildSearchQuery(parsed: ParsedQuery): String = when (parsed.type) {
-        QueryType.SONG -> listOfNotNull(parsed.title, parsed.artist).joinToString(" ")
-        QueryType.ARTIST -> parsed.artist ?: parsed.rawQuery
-        QueryType.ALBUM -> parsed.title ?: parsed.rawQuery
-        QueryType.UNKNOWN -> parsed.rawQuery
-    }
-
     private fun computeBestScore(song: Child, parsed: ParsedQuery): Int {
-        fun normalize(s: String) = s.lowercase().replace(Regex("[^a-z0-9 ]"), "").trim()
+        fun normalize(s: String) = s.lowercase().replace(Regex("[^\\p{L}\\p{N} ]"), "").trim()
 
         val title = normalize(song.title ?: "")
         val artist = normalize(song.artist ?: "")
@@ -113,6 +128,10 @@ class VoiceSearchViewModel : ViewModel() {
                 val album = normalize(song.album ?: "")
                 val qal = normalize(parsed.title ?: parsed.rawQuery)
                 if (album == qal) 100 else if (album.contains(qal)) 60 else 20
+            }
+            QueryType.PLAYLIST -> {
+                val raw = normalize(parsed.title ?: parsed.rawQuery)
+                if (title == raw) 80 else if (title.contains(raw)) 40 else 10
             }
             QueryType.UNKNOWN -> {
                 val raw = normalize(parsed.rawQuery)

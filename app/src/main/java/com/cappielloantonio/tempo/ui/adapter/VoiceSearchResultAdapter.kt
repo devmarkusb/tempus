@@ -7,7 +7,7 @@ import com.cappielloantonio.tempo.databinding.ItemVoiceSearchResultBinding
 import com.cappielloantonio.tempo.subsonic.models.Child
 
 class VoiceSearchResultAdapter(
-    private val onPick: (Child) -> Unit
+    private val onPick: (Child, Int) -> Unit
 ) : RecyclerView.Adapter<VoiceSearchResultAdapter.ViewHolder>() {
 
     private val items = mutableListOf<Child>()
@@ -36,7 +36,7 @@ class VoiceSearchResultAdapter(
             binding.voiceResultTitle.text = song.title ?: ""
             binding.voiceResultSubtitle.text = listOfNotNull(song.artist, song.album)
                 .joinToString(" • ")
-            binding.root.setOnClickListener { onPick(song) }
+            binding.root.setOnClickListener { onPick(song, bindingAdapterPosition) }
         }
     }
 }

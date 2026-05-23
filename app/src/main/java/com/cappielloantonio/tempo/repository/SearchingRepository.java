@@ -221,21 +221,48 @@ public class SearchingRepository {
         if (normalizedQuery.isEmpty()) return false;
 
         String playlistName = normalizeSearchTerm(playlist.getName());
-        if (playlistName.contains(normalizedQuery)) return true;
+        String playlistQuery = stripPlaylistSearchPrefix(normalizedQuery);
+        if (playlistQuery.isEmpty()) return false;
 
-        if (normalizedQuery.startsWith("play playlist ")) {
-            return playlistName.contains(normalizedQuery.substring("play playlist ".length()).trim());
-        }
-
-        if (normalizedQuery.startsWith("playlist ")) {
-            return playlistName.contains(normalizedQuery.substring("playlist ".length()).trim());
-        }
-
-        return false;
+        return playlistName.contains(playlistQuery);
     }
 
     private String normalizeSearchTerm(String value) {
         return value == null ? "" : value.toLowerCase(Locale.ROOT).trim();
+    }
+
+    private String stripPlaylistSearchPrefix(String normalizedQuery) {
+        String[] prefixes = {
+                "play playlist ",
+                "play the playlist ",
+                "listen to playlist ",
+                "listen to the playlist ",
+                "hear playlist ",
+                "hear the playlist ",
+                "playlist "
+        };
+
+        for (String prefix : prefixes) {
+            if (normalizedQuery.startsWith(prefix)) {
+                return normalizedQuery.substring(prefix.length()).trim();
+            }
+        }
+
+        String suffix = " playlist";
+        if (normalizedQuery.endsWith(suffix)) {
+            String withoutSuffix = normalizedQuery.substring(0, normalizedQuery.length() - suffix.length()).trim();
+            if (withoutSuffix.startsWith("play ")) {
+                return withoutSuffix.substring("play ".length()).trim();
+            }
+            if (withoutSuffix.startsWith("hear ")) {
+                return withoutSuffix.substring("hear ".length()).trim();
+            }
+            if (withoutSuffix.startsWith("listen to ")) {
+                return withoutSuffix.substring("listen to ".length()).trim();
+            }
+        }
+
+        return normalizedQuery;
     }
 
     public void insert(RecentSearch recentSearch) {

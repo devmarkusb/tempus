@@ -21,6 +21,7 @@ import androidx.fragment.app.viewModels
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaBrowser
 import androidx.media3.session.SessionToken
+import androidx.recyclerview.widget.RecyclerView
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.cappielloantonio.tempo.R
 import com.cappielloantonio.tempo.databinding.FragmentVoiceSearchBinding
@@ -48,6 +49,9 @@ class VoiceSearchFragment : Fragment() {
     private lateinit var speechLauncher: ActivityResultLauncher<Intent>
     private val ambiguousAutoPlayHandler = Handler(Looper.getMainLooper())
     private var pendingAmbiguousCandidates: List<Child> = emptyList()
+    private var pendingAmbiguousShuffleAutoPlay = true
+    private var displayedFallbackCandidates: List<Child> = emptyList()
+    private var displayedFallbackPlayAsQueue = false
     private val ambiguousAutoPlayRunnable = Runnable {
         playPendingAmbiguousCandidates()
     }
@@ -77,9 +81,16 @@ class VoiceSearchFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        adapter = VoiceSearchResultAdapter { song ->
+        adapter = VoiceSearchResultAdapter { song, position ->
             cancelAmbiguousAutoPlay()
-            playNow(listOf(song), 0)
+            if (displayedFallbackPlayAsQueue &&
+                displayedFallbackCandidates.isNotEmpty() &&
+                position != RecyclerView.NO_POSITION
+            ) {
+                playNow(displayedFallbackCandidates, position)
+            } else {
+                playNow(listOf(song), 0)
+            }
         }
         bind.voiceSearchFallbackList.layoutManager = LinearLayoutManager(requireContext())
         bind.voiceSearchFallbackList.adapter = adapter
@@ -157,6 +168,7 @@ class VoiceSearchFragment : Fragment() {
                 bind.voiceSearchStatus.visibility = View.GONE
                 bind.voiceSearchFallbackLabel.visibility = View.GONE
                 bind.voiceSearchFallbackList.visibility = View.GONE
+                clearDisplayedFallback()
             }
             is VoiceSearchState.Listening -> {
                 cancelAmbiguousAutoPlay()
@@ -164,6 +176,7 @@ class VoiceSearchFragment : Fragment() {
                 bind.voiceSearchStatus.visibility = View.VISIBLE
                 bind.voiceSearchFallbackLabel.visibility = View.GONE
                 bind.voiceSearchFallbackList.visibility = View.GONE
+                clearDisplayedFallback()
             }
             is VoiceSearchState.Searching -> {
                 cancelAmbiguousAutoPlay()
@@ -171,6 +184,7 @@ class VoiceSearchFragment : Fragment() {
                 bind.voiceSearchStatus.visibility = View.VISIBLE
                 bind.voiceSearchFallbackLabel.visibility = View.GONE
                 bind.voiceSearchFallbackList.visibility = View.GONE
+                clearDisplayedFallback()
             }
             is VoiceSearchState.Playing -> {
                 cancelAmbiguousAutoPlay()
@@ -179,14 +193,17 @@ class VoiceSearchFragment : Fragment() {
                 bind.voiceSearchStatus.visibility = View.VISIBLE
                 bind.voiceSearchFallbackLabel.visibility = View.GONE
                 bind.voiceSearchFallbackList.visibility = View.GONE
-                playNow(listOf(state.song), 0)
+                clearDisplayedFallback()
+                playNow(state.queue, state.startIndex)
             }
             is VoiceSearchState.Ambiguous -> {
                 bind.voiceSearchStatus.visibility = View.GONE
                 bind.voiceSearchFallbackLabel.visibility = View.VISIBLE
                 bind.voiceSearchFallbackList.visibility = View.VISIBLE
+                displayedFallbackCandidates = state.candidates
+                displayedFallbackPlayAsQueue = state.playAsQueue
                 adapter.submitList(state.candidates)
-                scheduleAmbiguousAutoPlay(state.candidates)
+                scheduleAmbiguousAutoPlay(state.candidates, state.shuffleAutoPlay)
             }
             is VoiceSearchState.NoResults -> {
                 cancelAmbiguousAutoPlay()
@@ -194,18 +211,21 @@ class VoiceSearchFragment : Fragment() {
                 bind.voiceSearchStatus.visibility = View.VISIBLE
                 bind.voiceSearchFallbackLabel.visibility = View.GONE
                 bind.voiceSearchFallbackList.visibility = View.GONE
+                clearDisplayedFallback()
             }
             is VoiceSearchState.Error -> {
                 cancelAmbiguousAutoPlay()
                 bind.voiceSearchStatus.text = state.message
                 bind.voiceSearchStatus.visibility = View.VISIBLE
+                clearDisplayedFallback()
             }
         }
     }
 
-    private fun scheduleAmbiguousAutoPlay(candidates: List<Child>) {
+    private fun scheduleAmbiguousAutoPlay(candidates: List<Child>, shuffleAutoPlay: Boolean) {
         pauseAmbiguousAutoPlay()
         pendingAmbiguousCandidates = candidates
+        pendingAmbiguousShuffleAutoPlay = shuffleAutoPlay
         resumeAmbiguousAutoPlay()
     }
 
@@ -225,6 +245,12 @@ class VoiceSearchFragment : Fragment() {
     private fun cancelAmbiguousAutoPlay() {
         pauseAmbiguousAutoPlay()
         pendingAmbiguousCandidates = emptyList()
+        pendingAmbiguousShuffleAutoPlay = true
+    }
+
+    private fun clearDisplayedFallback() {
+        displayedFallbackCandidates = emptyList()
+        displayedFallbackPlayAsQueue = false
     }
 
     private fun playPendingAmbiguousCandidates() {
@@ -232,15 +258,20 @@ class VoiceSearchFragment : Fragment() {
         if (candidates.isEmpty() || !::mediaBrowserFuture.isInitialized || _bind == null) return
 
         pendingAmbiguousCandidates = emptyList()
-        val shuffledCandidates = candidates.shuffled()
+        val playbackCandidates = if (pendingAmbiguousShuffleAutoPlay) {
+            candidates.shuffled()
+        } else {
+            candidates
+        }
         bind.voiceSearchStatus.text = getString(
             R.string.voice_search_playing,
-            formatSongLabel(shuffledCandidates.first())
+            formatSongLabel(playbackCandidates.first())
         )
         bind.voiceSearchStatus.visibility = View.VISIBLE
         bind.voiceSearchFallbackLabel.visibility = View.GONE
         bind.voiceSearchFallbackList.visibility = View.GONE
-        playNow(shuffledCandidates, 0)
+        clearDisplayedFallback()
+        playNow(playbackCandidates, 0)
     }
 
     private fun playNow(songs: List<Child>, startIndex: Int) {

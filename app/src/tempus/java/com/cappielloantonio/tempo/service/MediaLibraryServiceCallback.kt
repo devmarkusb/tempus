@@ -44,6 +44,7 @@ import retrofit2.Callback
 import retrofit2.Response
 
 private const val TAG = "MediaLibraryServiceCallback"
+private const val SEARCH_RESULT_LIMIT = 1_500
 @UnstableApi
 open class MediaLibrarySessionCallback(
     private val context: Context,
@@ -477,11 +478,30 @@ open class MediaLibrarySessionCallback(
                 )
             }
 
+            parentId?.startsWith(Constants.AA_ARTIST_SOURCE) == true -> {
+                Log.d(TAG, "Fetching artist tracks for $parentId")
+                Futures.transform(
+                    automotiveRepository.getArtistTracks(parentId.removePrefix(Constants.AA_ARTIST_SOURCE)),
+                    { it.value ?: emptyList() },
+                    MoreExecutors.directExecutor()
+                )
+            }
+
             firstItem.mediaId.startsWith(Constants.AA_PLAYLIST_ID) &&
                     firstItem.mediaId != Constants.AA_PLAYLIST_ID -> {
                 Log.d(TAG, "Fetching playlist tracks for ${firstItem.mediaId}")
                 Futures.transform(
                     automotiveRepository.getPlaylistSongs(firstItem.mediaId.removePrefix(Constants.AA_PLAYLIST_ID)),
+                    { it.value ?: emptyList() },
+                    MoreExecutors.directExecutor()
+                )
+            }
+
+            firstItem.mediaId.startsWith(Constants.AA_ARTIST_ID) &&
+                    firstItem.mediaId != Constants.AA_ARTIST_ID -> {
+                Log.d(TAG, "Fetching artist tracks for ${firstItem.mediaId}")
+                Futures.transform(
+                    automotiveRepository.getArtistTracks(firstItem.mediaId.removePrefix(Constants.AA_ARTIST_ID)),
                     { it.value ?: emptyList() },
                     MoreExecutors.directExecutor()
                 )
@@ -533,7 +553,7 @@ open class MediaLibrarySessionCallback(
         query: String,
         params: MediaLibraryService.LibraryParams?
     ): ListenableFuture<LibraryResult<Void>> {
-        session.notifySearchResultChanged(browser, query, 60, params)
+        session.notifySearchResultChanged(browser, query, SEARCH_RESULT_LIMIT, params)
         return Futures.immediateFuture(LibraryResult.ofVoid())
     }
 

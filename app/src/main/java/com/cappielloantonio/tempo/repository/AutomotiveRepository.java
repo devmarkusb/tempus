@@ -52,12 +52,15 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.stream.Collectors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import retrofit2.Call;
 import retrofit2.Callback;
 import retrofit2.Response;
 
 public class AutomotiveRepository {
+    private static final int SEARCH_RESULT_LIMIT = 500;
+
     private final SessionMediaItemDao sessionMediaItemDao = AppDatabase.getInstance().sessionMediaItemDao();
     private final ChronologyDao chronologyDao = AppDatabase.getInstance().chronologyDao();
 
@@ -735,6 +738,100 @@ public class AutomotiveRepository {
         return listenableFuture;
     }
 
+    public ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> getArtistTracks(String id) {
+        final SettableFuture<LibraryResult<ImmutableList<MediaItem>>> listenableFuture = SettableFuture.create();
+
+        App.getSubsonicClientInstance(false)
+                .getBrowsingClient()
+                .getArtist(id)
+                .enqueue(new Callback<ApiResponse>() {
+                    @Override
+                    public void onResponse(@NonNull Call<ApiResponse> call, @NonNull Response<ApiResponse> response) {
+                        if (!response.isSuccessful()
+                                || response.body() == null
+                                || response.body().getSubsonicResponse().getArtist() == null
+                                || response.body().getSubsonicResponse().getArtist().getAlbums() == null) {
+                            listenableFuture.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE));
+                            return;
+                        }
+
+                        List<AlbumID3> albums = response.body().getSubsonicResponse().getArtist().getAlbums();
+                        if (albums.isEmpty()) {
+                            completeArtistTracks(listenableFuture, id, new ArrayList<>());
+                            return;
+                        }
+
+                        List<List<Child>> albumTracks = new ArrayList<>();
+                        for (int i = 0; i < albums.size(); i++) {
+                            albumTracks.add(new ArrayList<>());
+                        }
+                        AtomicInteger remainingAlbums = new AtomicInteger(albums.size());
+
+                        for (int i = 0; i < albums.size(); i++) {
+                            AlbumID3 album = albums.get(i);
+                            int albumIndex = i;
+                            String albumId = album.getId();
+                            if (albumId == null) {
+                                if (remainingAlbums.decrementAndGet() == 0) {
+                                    completeArtistTracks(listenableFuture, id, flattenTracks(albumTracks));
+                                }
+                                continue;
+                            }
+
+                            App.getSubsonicClientInstance(false)
+                                    .getBrowsingClient()
+                                    .getAlbum(albumId)
+                                    .enqueue(new Callback<ApiResponse>() {
+                                        @Override
+                                        public void onResponse(@NonNull Call<ApiResponse> call, @NonNull Response<ApiResponse> response) {
+                                            if (response.isSuccessful()
+                                                    && response.body() != null
+                                                    && response.body().getSubsonicResponse().getAlbum() != null
+                                                    && response.body().getSubsonicResponse().getAlbum().getSongs() != null) {
+                                                albumTracks.set(albumIndex, response.body().getSubsonicResponse().getAlbum().getSongs());
+                                            }
+
+                                            if (remainingAlbums.decrementAndGet() == 0) {
+                                                completeArtistTracks(listenableFuture, id, flattenTracks(albumTracks));
+                                            }
+                                        }
+
+                                        @Override
+                                        public void onFailure(@NonNull Call<ApiResponse> call, @NonNull Throwable t) {
+                                            if (remainingAlbums.decrementAndGet() == 0) {
+                                                completeArtistTracks(listenableFuture, id, flattenTracks(albumTracks));
+                                            }
+                                        }
+                                    });
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(@NonNull Call<ApiResponse> call, @NonNull Throwable t) {
+                        listenableFuture.setException(t);
+                    }
+                });
+
+        return listenableFuture;
+    }
+
+    private List<Child> flattenTracks(List<List<Child>> albumTracks) {
+        List<Child> tracks = new ArrayList<>();
+        for (List<Child> albumTrackList : albumTracks) {
+            tracks.addAll(albumTrackList);
+        }
+        return tracks;
+    }
+
+    private void completeArtistTracks(SettableFuture<LibraryResult<ImmutableList<MediaItem>>> listenableFuture, String artistId, List<Child> tracks) {
+        if (listenableFuture.isDone()) return;
+
+        setChildrenMetadata(tracks);
+
+        List<MediaItem> mediaItems = MappingUtil.mapMediaItems(tracks, Constants.AA_ARTIST_SOURCE + artistId);
+        listenableFuture.set(LibraryResult.ofItemList(ImmutableList.copyOf(mediaItems), null));
+    }
+
     public ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> getPlaylistSongs(String id) {
         final SettableFuture<LibraryResult<ImmutableList<MediaItem>>> listenableFuture = SettableFuture.create();
 
@@ -802,7 +899,7 @@ public class AutomotiveRepository {
 
         App.getSubsonicClientInstance(false)
                 .getSearchingClient()
-                .search3(query, 20, 0, 20, 0, 20, 0)
+                .search3(query, SEARCH_RESULT_LIMIT, 0, SEARCH_RESULT_LIMIT, 0, SEARCH_RESULT_LIMIT, 0)
                 .enqueue(new Callback<ApiResponse>() {
                     @Override
                     public void onResponse(@NonNull Call<ApiResponse> call, @NonNull Response<ApiResponse> response) {
@@ -815,8 +912,8 @@ public class AutomotiveRepository {
                                     MediaMetadata mediaMetadata = new MediaMetadata.Builder()
                                             .setTitle(artist.getName())
                                             .setIsBrowsable(true)
-                                            .setIsPlayable(false)
-                                            .setMediaType(MediaMetadata.MEDIA_TYPE_PLAYLIST)
+                                            .setIsPlayable(true)
+                                            .setMediaType(MediaMetadata.MEDIA_TYPE_ARTIST)
                                             .setArtworkUri(artworkUri)
                                             .build();
 
@@ -917,21 +1014,48 @@ public class AutomotiveRepository {
         if (normalizedQuery.isEmpty()) return false;
 
         String playlistName = normalizeSearchTerm(playlist.getName());
-        if (playlistName.contains(normalizedQuery)) return true;
+        String playlistQuery = stripPlaylistSearchPrefix(normalizedQuery);
+        if (playlistQuery.isEmpty()) return false;
 
-        if (normalizedQuery.startsWith("play playlist ")) {
-            return playlistName.contains(normalizedQuery.substring("play playlist ".length()).trim());
-        }
-
-        if (normalizedQuery.startsWith("playlist ")) {
-            return playlistName.contains(normalizedQuery.substring("playlist ".length()).trim());
-        }
-
-        return false;
+        return playlistName.contains(playlistQuery);
     }
 
     private String normalizeSearchTerm(String value) {
         return value == null ? "" : value.toLowerCase(Locale.ROOT).trim();
+    }
+
+    private String stripPlaylistSearchPrefix(String normalizedQuery) {
+        String[] prefixes = {
+                "play playlist ",
+                "play the playlist ",
+                "listen to playlist ",
+                "listen to the playlist ",
+                "hear playlist ",
+                "hear the playlist ",
+                "playlist "
+        };
+
+        for (String prefix : prefixes) {
+            if (normalizedQuery.startsWith(prefix)) {
+                return normalizedQuery.substring(prefix.length()).trim();
+            }
+        }
+
+        String suffix = " playlist";
+        if (normalizedQuery.endsWith(suffix)) {
+            String withoutSuffix = normalizedQuery.substring(0, normalizedQuery.length() - suffix.length()).trim();
+            if (withoutSuffix.startsWith("play ")) {
+                return withoutSuffix.substring("play ".length()).trim();
+            }
+            if (withoutSuffix.startsWith("hear ")) {
+                return withoutSuffix.substring("hear ".length()).trim();
+            }
+            if (withoutSuffix.startsWith("listen to ")) {
+                return withoutSuffix.substring("listen to ".length()).trim();
+            }
+        }
+
+        return normalizedQuery;
     }
 
     @OptIn(markerClass = UnstableApi.class)
