@@ -36,15 +36,20 @@ import com.google.common.collect.ImmutableList
 import com.cappielloantonio.tempo.util.Constants
 import com.cappielloantonio.tempo.util.MappingUtil
 import com.cappielloantonio.tempo.util.Preferences
+import com.cappielloantonio.tempo.voice.PlayFromSearchUseCase
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
 
 private const val TAG = "MediaLibraryServiceCallback"
 private const val SEARCH_RESULT_LIMIT = 1_500
+private val playFromSearchExecutor = Executors.newSingleThreadExecutor()
+
 @UnstableApi
 open class MediaLibrarySessionCallback(
     private val context: Context,
@@ -382,6 +387,20 @@ open class MediaLibrarySessionCallback(
 
         Log.d(TAG, "mediaId = ${firstItem.mediaId},  startIndex = $startIndex, startPositionMs = $startPositionMs")
 
+        if (hasPlayFromSearchQuery(firstItem)) {
+            return Futures.transform(
+                resolvePlayFromSearch(firstItem),
+                { resolvedItems ->
+                    MediaSession.MediaItemsWithStartPosition(
+                        resolvedItems,
+                        0,
+                        0L
+                    )
+                },
+                MoreExecutors.directExecutor()
+            )
+        }
+
         if (isRadio(firstItem)) {
             QueueRepository().deleteAll()
             return super.onSetMediaItems(mediaSession, controller, mediaItems, 0, 0)
@@ -418,12 +437,45 @@ open class MediaLibrarySessionCallback(
         val extras = firstItem.requestMetadata.extras ?: firstItem.mediaMetadata.extras
         Log.d(TAG, "extras: ${extras?.keySet()?.joinToString { key -> "$key=${extras.get(key)}" } ?: "null"}")
 
+        if (hasPlayFromSearchQuery(firstItem)) {
+            return resolvePlayFromSearch(firstItem)
+        }
+
         if (isRadio(firstItem)) {
             Log.d(TAG, "Radio")
             return fetchRadioItem(firstItem)
         }
 
         return resolveQueueForItem(firstItem, mediaItems)
+    }
+
+    private fun hasPlayFromSearchQuery(item: MediaItem): Boolean {
+        if (!item.requestMetadata.searchQuery.isNullOrBlank()) return true
+        val extras = item.requestMetadata.extras ?: item.mediaMetadata.extras ?: return false
+        return extras.containsKey(android.provider.MediaStore.EXTRA_MEDIA_FOCUS) ||
+            extras.containsKey(android.provider.MediaStore.EXTRA_MEDIA_ARTIST) ||
+            extras.containsKey(android.provider.MediaStore.EXTRA_MEDIA_ALBUM) ||
+            extras.containsKey(android.provider.MediaStore.EXTRA_MEDIA_TITLE)
+    }
+
+    private fun resolvePlayFromSearch(item: MediaItem): ListenableFuture<List<MediaItem>> {
+        val query = item.requestMetadata.searchQuery
+        val extras = item.requestMetadata.extras ?: item.mediaMetadata.extras
+        Log.d(TAG, "resolvePlayFromSearch query='$query'")
+
+        return Futures.submit(
+            Callable {
+                val result = PlayFromSearchUseCase.resolveQueue(query, extras)
+                if (result.songs.isEmpty()) {
+                    Log.d(TAG, "Play-from-search found no results for '$query'")
+                    emptyList()
+                } else {
+                    QueueRepository().insertAll(result.songs, true, 0)
+                    MappingUtil.mapMediaItems(result.songs)
+                }
+            },
+            playFromSearchExecutor
+        )
     }
 
     private fun isRadio(item: MediaItem): Boolean {

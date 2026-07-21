@@ -27,22 +27,26 @@ import androidx.media3.session.MediaSession.ControllerInfo
 import androidx.media3.extractor.metadata.icy.IcyInfo
 import androidx.media3.extractor.metadata.id3.TextInformationFrame
 import androidx.media3.extractor.metadata.vorbis.VorbisComment
+import android.provider.MediaStore
 import com.cappielloantonio.tempo.R
 import com.cappielloantonio.tempo.repository.QueueRepository
 import com.cappielloantonio.tempo.ui.activity.MainActivity
 import com.cappielloantonio.tempo.util.*
+import com.cappielloantonio.tempo.voice.PlayFromSearchUseCase
 import com.cappielloantonio.tempo.widget.WidgetUpdateManager
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 
 private const val TAG = "BaseMediaService"
+private val playFromSearchExecutor = Executors.newSingleThreadExecutor()
 
 @UnstableApi
 open class BaseMediaService : MediaLibraryService() {
@@ -782,6 +786,11 @@ open class BaseMediaService : MediaLibraryService() {
             mediaItems: List<MediaItem>
         ): ListenableFuture<List<MediaItem>> {
             Log.d(TAG, "onAddMediaItems")
+            val firstItem = mediaItems.firstOrNull()
+            if (firstItem != null && hasPlayFromSearchQuery(firstItem)) {
+                return resolvePlayFromSearch(firstItem)
+            }
+
             val updatedMediaItems = mediaItems.map { mediaItem ->
                 val mediaMetadata = mediaItem.mediaMetadata
                 val newMetadata = mediaMetadata.buildUpon()
@@ -798,6 +807,35 @@ open class BaseMediaService : MediaLibraryService() {
                     .build()
             }
             return Futures.immediateFuture(updatedMediaItems)
+        }
+
+        private fun hasPlayFromSearchQuery(item: MediaItem): Boolean {
+            if (!item.requestMetadata.searchQuery.isNullOrBlank()) return true
+            val extras = item.requestMetadata.extras ?: item.mediaMetadata.extras ?: return false
+            return extras.containsKey(MediaStore.EXTRA_MEDIA_FOCUS) ||
+                extras.containsKey(MediaStore.EXTRA_MEDIA_ARTIST) ||
+                extras.containsKey(MediaStore.EXTRA_MEDIA_ALBUM) ||
+                extras.containsKey(MediaStore.EXTRA_MEDIA_TITLE)
+        }
+
+        private fun resolvePlayFromSearch(item: MediaItem): ListenableFuture<List<MediaItem>> {
+            val query = item.requestMetadata.searchQuery
+            val extras = item.requestMetadata.extras ?: item.mediaMetadata.extras
+            Log.d(TAG, "resolvePlayFromSearch query='$query'")
+
+            return Futures.submit(
+                Callable {
+                    val result = PlayFromSearchUseCase.resolveQueue(query, extras)
+                    if (result.songs.isEmpty()) {
+                        Log.d(TAG, "Play-from-search found no results for '$query'")
+                        emptyList()
+                    } else {
+                        QueueRepository().insertAll(result.songs, true, 0)
+                        MappingUtil.mapMediaItems(result.songs)
+                    }
+                },
+                playFromSearchExecutor
+            )
         }
 
         @SuppressLint("PrivateResource")
