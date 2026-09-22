@@ -107,4 +107,4 @@ jobs:
         with:
           name: play-internal-aab
           path: ${{ env.PLAY_BUNDLE_PATH }}
-          retention-days: 14
+          retention-days: 7
