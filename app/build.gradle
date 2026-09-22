@@ -11,12 +11,12 @@ def playKeyPassword = System.getenv("PLAY_KEY_PASSWORD")
 def playSigningEnabled = playKeystoreFile != null && !playKeystoreFile.isBlank()
 
 android {
-    compileSdk 35
-    buildToolsVersion = '35.0.0'
+    compileSdk 36
+    buildToolsVersion = '36.0.0'
 
     defaultConfig {
         minSdkVersion 24
-        targetSdk 35
+        targetSdk 36
 
         versionCode = versionCodeOverride ? Integer.parseInt(versionCodeOverride) : 25
         versionName '4.14.1'
