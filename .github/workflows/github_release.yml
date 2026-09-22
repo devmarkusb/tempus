@@ -126,4 +126,4 @@ jobs:
         with:
           name: release-apks
           path: ./release-artifacts/*.apk
-          retention-days: 30
+          retention-days: 7
