@@ -15,6 +15,10 @@ on:
         required: false
         type: string
 
+concurrency:
+  group: play-internal-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   upload:
     runs-on: ubuntu-latest
@@ -102,9 +106,3 @@ jobs:
           status: completed
           releaseName: ${{ env.PLAY_RELEASE_NAME }}
 
-      - name: Upload signed bundle artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: play-internal-aab
-          path: ${{ env.PLAY_BUNDLE_PATH }}
-          retention-days: 7
